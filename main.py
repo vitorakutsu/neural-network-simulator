@@ -1,0 +1,248 @@
+import tkinter as tk
+from tkinter import ttk, filedialog
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+class MLP:
+    def __init__(self, n_inputs, n_hidden, n_outputs, learning_rate, activation='logistic'):
+        self.w_hidden = np.random.randn(n_inputs, n_hidden) * 0.01
+        self.b_hidden = np.zeros((1, n_hidden))
+        self.w_output = np.random.randn(n_hidden, n_outputs) * 0.01
+        self.b_output = np.zeros((1, n_outputs))
+        self.learning_rate = learning_rate
+        self.activation = activation
+        
+    def activation_function(self, x, derivative=False):
+        if self.activation == 'linear':
+            return 1 / 10 if derivative else x / 10
+        elif self.activation == 'logistic':
+            fx = 1 / (1 + np.exp(-x))
+            return fx * (1 - fx) if derivative else fx
+        elif self.activation == 'tanh':
+            return 1 - np.power(np.tanh(x), 2) if derivative else np.tanh(x)
+
+    def forward(self, X):
+        self.hidden_net = np.dot(X, self.w_hidden) + self.b_hidden
+        self.hidden_output = self.activation_function(self.hidden_net)
+        self.output_net = np.dot(self.hidden_output, self.w_output) + self.b_output
+        self.output = self.activation_function(self.output_net)
+        return self.output
+
+    def backward(self, X, y, output):
+        output_error = y - output
+        output_delta = output_error * self.activation_function(self.output_net, derivative=True)
+        hidden_error = np.dot(output_delta, self.w_output.T)
+        hidden_delta = hidden_error * self.activation_function(self.hidden_net, derivative=True)
+        self.w_output += self.learning_rate * np.dot(self.hidden_output.T, output_delta)
+        self.b_output += self.learning_rate * np.sum(output_delta, axis=0, keepdims=True)
+        self.w_hidden += self.learning_rate * np.dot(X.T, hidden_delta)
+        self.b_hidden += self.learning_rate * np.sum(hidden_delta, axis=0, keepdims=True)
+
+class Interface:
+    def __init__(self):
+        self.root = tk.Tk()
+        self.root.title("MLP Neural Network")
+        
+        # Configura a responsividade das colunas e linhas
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+        
+        # Frame principal para organizar os widgets
+        self.main_frame = ttk.Frame(self.root)
+        self.main_frame.grid(sticky="nsew", padx=10, pady=10)
+        self.main_frame.columnconfigure(0, weight=1)
+        self.main_frame.rowconfigure(5, weight=1)
+
+        # Variáveis de controle
+        self.train_file = tk.StringVar()
+        self.test_file = tk.StringVar()
+        self.hidden_neurons = tk.StringVar(value="5")
+        self.learning_rate = tk.StringVar(value="0.1")
+        self.max_epochs = tk.StringVar(value="1000")
+        self.error_threshold = tk.StringVar(value="0.01")
+        self.activation_function = tk.StringVar(value="logistic")
+        self.stop_criterion = tk.StringVar(value="epochs")
+
+        # Área de saída de treinamento
+        self.training_output = tk.Text(self.main_frame, height=5, wrap='word')
+        self.training_output.grid(row=0, column=0, sticky="nsew", pady=5)
+
+        # Widgets de entrada
+        self.create_widgets()
+        
+        # Tabela para exibir CSV e Resultados
+        self.create_table(self.main_frame, row=6)
+        self.create_results_table(self.main_frame, row=7)
+        
+    def create_widgets(self):
+        file_frame = ttk.LabelFrame(self.main_frame, text="Arquivos")
+        file_frame.grid(row=1, column=0, padx=5, pady=5, sticky="ew")
+        
+        ttk.Button(file_frame, text="Selecionar arquivo de treino", 
+                   command=lambda: self.select_file('train')).grid(row=0, column=0, padx=5, pady=5)
+        ttk.Button(file_frame, text="Selecionar arquivo de teste", 
+                   command=lambda: self.select_file('test')).grid(row=1, column=0, padx=5, pady=5)
+        
+        param_frame = ttk.LabelFrame(self.main_frame, text="Parâmetros")
+        param_frame.grid(row=2, column=0, padx=5, pady=5, sticky="ew")
+        
+        ttk.Label(param_frame, text="Neurônios na camada oculta:").grid(row=0, column=0, padx=5, pady=5)
+        ttk.Entry(param_frame, textvariable=self.hidden_neurons).grid(row=0, column=1, padx=5, pady=5)
+        
+        ttk.Label(param_frame, text="Taxa de aprendizagem:").grid(row=1, column=0, padx=5, pady=5)
+        ttk.Entry(param_frame, textvariable=self.learning_rate).grid(row=1, column=1, padx=5, pady=5)
+        
+        ttk.Label(param_frame, text="Função de ativação:").grid(row=2, column=0, padx=5, pady=5)
+        ttk.Combobox(param_frame, textvariable=self.activation_function,
+                     values=["linear", "logistic", "tanh"]).grid(row=2, column=1, padx=5, pady=5)
+        
+        stop_frame = ttk.LabelFrame(self.main_frame, text="Critério de Parada")
+        stop_frame.grid(row=3, column=0, padx=5, pady=5, sticky="ew")
+        
+        ttk.Radiobutton(stop_frame, text="Por épocas", variable=self.stop_criterion,
+                        value="epochs").grid(row=0, column=0, padx=5, pady=5)
+        ttk.Entry(stop_frame, textvariable=self.max_epochs).grid(row=0, column=1, padx=5, pady=5)
+        
+        ttk.Radiobutton(stop_frame, text="Por erro", variable=self.stop_criterion,
+                        value="error").grid(row=1, column=0, padx=5, pady=5)
+        ttk.Entry(stop_frame, textvariable=self.error_threshold).grid(row=1, column=1, padx=5, pady=5)
+        
+        # Posicionando o botão "Treinar" na última linha de parâmetros
+        ttk.Button(self.main_frame, text="Treinar", command=self.train).grid(row=4, column=0, padx=5, pady=10, sticky="ew")
+        
+    def create_table(self, frame, row):
+        # Criação da tabela para exibir o CSV
+        self.table_frame = ttk.Frame(frame)
+        self.table_frame.grid(row=row, column=0, padx=5, pady=5, sticky="nsew")
+        
+        self.table = ttk.Treeview(self.table_frame, show="headings")
+        self.table.pack(fill="both", expand=True)
+        
+        scrollbar = ttk.Scrollbar(self.table_frame, orient="vertical", command=self.table.yview)
+        self.table.configure(yscroll=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+
+    def create_results_table(self, frame, row):
+        # Configura a tabela para exibir Época e Erro
+        self.results_frame = ttk.Frame(frame)
+        self.results_frame.grid(row=row, column=0, padx=5, pady=5, sticky="nsew")
+        
+        self.results_table = ttk.Treeview(self.results_frame, columns=("Época", "Erro"), show="headings")
+        self.results_table.heading("Época", text="Época")
+        self.results_table.heading("Erro", text="Erro")
+        self.results_table.pack(fill="both", expand=True)
+        
+        scrollbar = ttk.Scrollbar(self.results_frame, orient="vertical", command=self.results_table.yview)
+        self.results_table.configure(yscroll=scrollbar.set)
+        scrollbar.pack(side="right", fill="y")
+
+    def select_file(self, file_type):
+        filename = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
+        if file_type == 'train':
+            self.train_file.set(filename)
+            self.display_csv(filename)
+        else:
+            self.test_file.set(filename)
+            self.display_csv(filename)
+
+    def display_csv(self, filename):
+        df = pd.read_csv(filename)
+        
+        # Limpa a tabela antes de inserir novos dados
+        self.table.delete(*self.table.get_children())
+        self.table["columns"] = list(df.columns)
+        for col in df.columns:
+            self.table.heading(col, text=col)
+            self.table.column(col, anchor="center")
+
+        for row in df.itertuples(index=False):
+            self.table.insert("", "end", values=row)
+        
+    def train(self):
+
+        if not self.train_file.get():
+            tk.messagebox.showerror("Erro", "Por favor, selecione um arquivo de treinamento.")
+            return
+        if not self.test_file.get():
+            tk.messagebox.showerror("Erro", "Por favor, selecione um arquivo de teste.")
+            return
+
+        self.training_output.delete(1.0, tk.END)  # Limpa o texto anterior
+        self.training_output.insert(tk.END, "Iniciando o treinamento...\n")
+        
+        # Carregar dados
+        train_data = pd.read_csv(self.train_file.get())
+        test_data = pd.read_csv(self.test_file.get())
+        
+        # Separar features e targets
+        X_train = train_data.iloc[:, :-1].values
+        y_train = pd.get_dummies(train_data.iloc[:, -1]).values
+        X_test = test_data.iloc[:, :-1].values
+        y_test = pd.get_dummies(test_data.iloc[:, -1]).values
+        
+        # Normalizar os dados
+        scaler = StandardScaler()
+        X_train = scaler.fit_transform(X_train)
+        X_test = scaler.transform(X_test)
+
+        # Parâmetros da rede
+        n_inputs = X_train.shape[1]
+        n_hidden = int(self.hidden_neurons.get())
+        n_outputs = y_train.shape[1]
+        learning_rate = float(self.learning_rate.get())
+        
+        # Criar a rede neural
+        mlp = MLP(n_inputs, n_hidden, n_outputs, learning_rate, self.activation_function.get())
+        
+        # Limpa a tabela de resultados antes de começar
+        self.results_table.delete(*self.results_table.get_children())
+
+        # Treinamento
+        max_epochs = int(self.max_epochs.get())
+        error_threshold = float(self.error_threshold.get())
+        
+        for epoch in range(max_epochs):
+            # Forward e backward pass
+            output = mlp.forward(X_train)
+            mlp.backward(X_train, y_train, output)
+            
+            # Calcular erro (mean squared error)
+            loss = np.mean(np.square(y_train - output))
+            self.training_output.insert(tk.END, f'Época {epoch + 1}/{max_epochs}, Erro: {loss:.4f}\n')
+            self.training_output.see(tk.END)  # Rolagem automática para o final
+
+            # Adicionar os valores de época e erro na tabela de resultados
+            self.results_table.insert("", "end", values=(epoch + 1, f"{loss:.4f}"))
+
+            # Critério de parada
+            if self.stop_criterion.get() == "error" and loss < error_threshold:
+                self.training_output.insert(tk.END, "Critério de parada atingido pelo erro.\n")
+                break
+    
+        # Avaliação no conjunto de teste
+        test_output = mlp.forward(X_test)
+        test_loss = np.mean(np.square(y_test - test_output))
+        self.training_output.insert(tk.END, f'Erro no conjunto de teste: {test_loss:.4f}\n')
+
+        # Matriz de Confusão
+        predicted_classes = np.argmax(test_output, axis=1)
+        true_classes = np.argmax(y_test, axis=1)
+        
+        confusion_matrix = pd.crosstab(true_classes, predicted_classes, rownames=['Classe Verdadeira'], colnames=['Classe Predita'])
+        self.training_output.insert(tk.END, "Matriz de Confusão:\n")
+        self.training_output.insert(tk.END, str(confusion_matrix) + "\n")
+        
+        # Plotar a matriz de confusão
+        plt.figure(figsize=(8, 6))
+        sns.heatmap(confusion_matrix, annot=True, cmap="Blues", fmt="d")
+        plt.xlabel("Classe Predita")
+        plt.ylabel("Classe Verdadeira")
+        plt.title("Matriz de Confusão")
+        plt.show()
+
+if __name__ == "__main__":
+    app = Interface()
+    app.root.mainloop()
