@@ -66,7 +66,7 @@ class Interface:
         self.learning_rate = tk.StringVar(value="0.1")
         self.max_epochs = tk.StringVar(value="1000")
         self.error_threshold = tk.StringVar(value="0.01")
-        self.train_percentage = tk.StringVar(value="80")
+        self.train_percentage = tk.StringVar(value="70")
         self.activation_function = tk.StringVar(value="logistic")
         self.stop_criterion = tk.StringVar(value="epochs")
 
