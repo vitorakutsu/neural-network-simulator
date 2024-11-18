@@ -1,12 +1,14 @@
 import tkinter as tk
 from tkinter import ttk
 from tkinter import filedialog
+import tkinter.simpledialog as simpledialog
 from tkinter import messagebox
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from sklearn.preprocessing import StandardScaler
+import seaborn as sns
 
 class MLP:
     def __init__(self, n_inputs, n_hidden, n_outputs, learning_rate, activation='logistic'):
@@ -24,7 +26,10 @@ class MLP:
             fx = 1 / (1 + np.exp(-x))
             return fx * (1 - fx) if derivative else fx
         elif self.activation == 'tanh':
-            return 1 - np.power(np.tanh(x), 2) if derivative else np.tanh(x)
+            if derivative:
+                tanh_x = np.tanh(x)
+                return 1 - tanh_x ** 2
+            return np.tanh(x)
 
     def forward(self, X):
         self.hidden_net = np.dot(X, self.w_hidden) + self.b_hidden
@@ -78,8 +83,8 @@ class Interface:
         self.create_widgets()
         
         # Tabela para exibir CSV e Resultados
-        self.create_table(self.main_frame, row=6)
-        self.create_results_table(self.main_frame, row=7)
+        self.create_table(self.main_frame, row=5)
+        self.create_results_table(self.main_frame, row=6)
         
     def create_widgets(self):
         file_frame = ttk.LabelFrame(self.main_frame, text="Arquivos")
@@ -207,19 +212,21 @@ class Interface:
 
         self.training_output.delete(1.0, tk.END)  # Limpa o texto anterior
         self.training_output.insert(tk.END, "Iniciando o treinamento...\n")
-        
+
+        # Limpa a tabela de resultados antes de começar
+        self.results_table.delete(*self.results_table.get_children())
+
         # Carregar dados
-        # Pegar o porcentagem de treinamento e teste a partir do train_percentage
         global_data = pd.read_csv(self.global_file.get())
         train_data = global_data.sample(frac=float(self.train_percentage.get()) / 100)
         test_data = global_data.drop(train_data.index)
-        
+
         # Separar features e targets
         X_train = train_data.iloc[:, :-1].values
         y_train = pd.get_dummies(train_data.iloc[:, -1]).values
         X_test = test_data.iloc[:, :-1].values
         y_test = pd.get_dummies(test_data.iloc[:, -1]).values
-        
+
         # Normalizar os dados
         scaler = StandardScaler()
         X_train = scaler.fit_transform(X_train)
@@ -230,74 +237,61 @@ class Interface:
         n_hidden = int(self.hidden_neurons.get())
         n_outputs = y_train.shape[1]
         learning_rate = float(self.learning_rate.get())
-        
+        max_epochs = int(self.max_epochs.get())
+        error_threshold = float(self.error_threshold.get())
+
         # Criar a rede neural
         mlp = MLP(n_inputs, n_hidden, n_outputs, learning_rate, self.activation_function.get())
-        
+
         # Configuração do gráfico para erro em tempo real
         fig_error, ax_error = plt.subplots()
         ax_error.set_title("Erro por Época")
         ax_error.set_xlabel("Época")
         ax_error.set_ylabel("Erro (MSE)")
-        
-        # Lista para armazenar os erros por época
-        epoch_errors = []
-        line, = ax_error.plot(epoch_errors, label="Erro")
 
-        plt.ion()  # Habilita o modo interativo
-        fig_error.show()
+        # Lista para armazenar os erros
+        errors = []
+        previous_error = None  # Para detecção de platô
 
-        # Treinamento
-        max_epochs = int(self.max_epochs.get())
-        error_threshold = float(self.error_threshold.get())
-        
         for epoch in range(max_epochs):
             # Forward e backward pass
             output = mlp.forward(X_train)
             mlp.backward(X_train, y_train, output)
-            
-            # Calcular erro (mean squared error)
-            loss = np.mean(np.square(y_train - output))
-            epoch_errors.append(loss)  # Adiciona o erro à lista
-            self.training_output.insert(tk.END, f'Época {epoch + 1}/{max_epochs}, Erro: {loss:.4f}\n')
-            self.training_output.see(tk.END)  # Rolagem automática para o final
 
-            # Atualizar o gráfico de erro em tempo real
-            line.set_xdata(range(len(epoch_errors)))
-            line.set_ydata(epoch_errors)
-            ax_error.relim()
-            ax_error.autoscale_view()
-            fig_error.canvas.draw()
-            fig_error.canvas.flush_events()
+            # Calcular erro
+            mse = np.mean((y_train - output) ** 2)
+            errors.append(mse)
 
-            # Critério de parada
-            if self.stop_criterion.get() == "error" and loss < error_threshold:
-                self.training_output.insert(tk.END, "Critério de parada atingido pelo erro.\n")
-                break
+            # Adicionar à tabela de resultados
+            self.results_table.insert("", "end", values=(epoch + 1, round(mse, 4)))
 
-        # Desabilitar o modo interativo ao final do treinamento
-        plt.ioff()
+            # Atualizar gráfico
+            ax_error.plot(errors, color="blue")
+            plt.pause(0.01)
 
-        # Avaliação no conjunto de teste
-        test_output = mlp.forward(X_test)
-        test_loss = np.mean(np.square(y_test - test_output))
-        self.training_output.insert(tk.END, f'Erro no conjunto de teste: {test_loss:.4f}\n')
+            # Critério de parada: erro menor ou igual ao limite
+            if mse <= error_threshold:
+                self.training_output.insert(tk.END, f"\nTreinamento encerrado: erro ({mse}) atingiu o limite ({error_threshold}).\n")
+                self.show_confusion_matrix(mlp, X_test, y_test)
+                return
 
-        # Matriz de Confusão
-        predicted_classes = np.argmax(test_output, axis=1)
-        true_classes = np.argmax(y_test, axis=1)
-        
-        confusion_matrix = pd.crosstab(true_classes, predicted_classes, rownames=['Classe Verdadeira'], colnames=['Classe Predita'])
-        self.training_output.insert(tk.END, "Matriz de Confusão:\n")
-        self.training_output.insert(tk.END, str(confusion_matrix) + "\n")
-        
-        # Exibir a matriz de confusão em uma nova janela
-        fig_confusion, ax_confusion = plt.subplots(figsize=(8, 6))
-        sns.heatmap(confusion_matrix, annot=True, cmap="Blues", fmt="d", ax=ax_confusion)
-        ax_confusion.set_xlabel("Classe Predita")
-        ax_confusion.set_ylabel("Classe Verdadeira")
-        ax_confusion.set_title("Matriz de Confusão")
-        fig_confusion.show()
+            # Detecção de platô
+            if previous_error and abs(previous_error - mse) < 1e-6:
+                self.training_output.insert(tk.END, "\nPlatô detectado. Deseja alterar a taxa de aprendizagem? (sim/não)\n")
+                user_response = messagebox.askquestion("Platô detectado", "Deseja alterar a taxa de aprendizagem?")
+                if user_response == "yes":
+                    new_learning_rate = float(simpledialog.askstring("Nova Taxa de Aprendizagem", "Digite a nova taxa de aprendizagem:"))
+                    mlp.learning_rate = new_learning_rate
+                else:
+                    self.training_output.insert(tk.END, "\nTreinamento encerrado devido a platô.\n")
+                    self.show_confusion_matrix(mlp, X_test, y_test)
+                    return
+
+            # Atualizar erro anterior
+            previous_error = mse
+
+        self.training_output.insert(tk.END, "\nTreinamento finalizado. Limite de épocas atingido.\n")
+        self.show_confusion_matrix(mlp, X_test, y_test)
 
     def train_with_two_files(self):
         if not self.train_file.get():
@@ -306,6 +300,9 @@ class Interface:
         if not self.test_file.get():
             tk.messagebox.showerror("Erro", "Por favor, selecione um arquivo de teste.")
             return
+        
+         # Limpa a tabela de resultados antes de começar
+        self.results_table.delete(*self.results_table.get_children())
 
         self.training_output.delete(1.0, tk.END)  # Limpa o texto anterior
         self.training_output.insert(tk.END, "Iniciando o treinamento...\n")
@@ -314,12 +311,12 @@ class Interface:
         train_data = pd.read_csv(self.train_file.get())
         test_data = pd.read_csv(self.test_file.get())
         
-        # Separar features e targets
+       # Separar features e targets
         X_train = train_data.iloc[:, :-1].values
         y_train = pd.get_dummies(train_data.iloc[:, -1]).values
         X_test = test_data.iloc[:, :-1].values
         y_test = pd.get_dummies(test_data.iloc[:, -1]).values
-        
+
         # Normalizar os dados
         scaler = StandardScaler()
         X_train = scaler.fit_transform(X_train)
@@ -330,60 +327,69 @@ class Interface:
         n_hidden = int(self.hidden_neurons.get())
         n_outputs = y_train.shape[1]
         learning_rate = float(self.learning_rate.get())
-        
+        max_epochs = int(self.max_epochs.get())
+        error_threshold = float(self.error_threshold.get())
+
         # Criar a rede neural
         mlp = MLP(n_inputs, n_hidden, n_outputs, learning_rate, self.activation_function.get())
-        
+
         # Configuração do gráfico para erro em tempo real
         fig_error, ax_error = plt.subplots()
         ax_error.set_title("Erro por Época")
         ax_error.set_xlabel("Época")
         ax_error.set_ylabel("Erro (MSE)")
-        
-        # Lista para armazenar os erros por época
-        epoch_errors = []
-        line, = ax_error.plot(epoch_errors, label="Erro")
 
-        plt.ion()  # Habilita o modo interativo
-        fig_error.show()
+        # Lista para armazenar os erros
+        errors = []
+        previous_error = None  # Para detecção de platô
 
-        # Treinamento
-        max_epochs = int(self.max_epochs.get())
-        error_threshold = float(self.error_threshold.get())
-        
         for epoch in range(max_epochs):
             # Forward e backward pass
             output = mlp.forward(X_train)
             mlp.backward(X_train, y_train, output)
-            
-            # Calcular erro (mean squared error)
-            loss = np.mean(np.square(y_train - output))
-            epoch_errors.append(loss)  # Adiciona o erro à lista
-            self.training_output.insert(tk.END, f'Época {epoch + 1}/{max_epochs}, Erro: {loss:.4f}\n')
-            self.training_output.see(tk.END)  # Rolagem automática para o final
 
-            # Atualizar o gráfico de erro em tempo real
-            line.set_xdata(range(len(epoch_errors)))
-            line.set_ydata(epoch_errors)
-            ax_error.relim()
-            ax_error.autoscale_view()
-            fig_error.canvas.draw()
-            fig_error.canvas.flush_events()
+            # Calcular erro
+            mse = np.mean((y_train - output) ** 2)
+            errors.append(mse)
 
-            # Critério de parada
-            if self.stop_criterion.get() == "error" and loss < error_threshold:
-                self.training_output.insert(tk.END, "Critério de parada atingido pelo erro.\n")
-                break
+            # Adicionar à tabela de resultados
+            self.results_table.insert("", "end", values=(epoch + 1, round(mse, 4)))
 
-        # Desabilitar o modo interativo ao final do treinamento
-        plt.ioff()
+            # Atualizar gráfico
+            ax_error.plot(errors, color="blue")
+            plt.pause(0.01)
 
+            # Critério de parada: erro menor ou igual ao limite
+            if mse <= error_threshold:
+                self.training_output.insert(tk.END, f"\nTreinamento encerrado: erro ({mse}) atingiu o limite ({error_threshold}).\n")
+                self.show_confusion_matrix(mlp, X_test, y_test)
+                return
+
+            # Detecção de platô
+            if previous_error and abs(previous_error - mse) < 1e-6:
+                self.training_output.insert(tk.END, "\nPlatô detectado. Deseja alterar a taxa de aprendizagem? (sim/não)\n")
+                user_response = messagebox.askquestion("Platô detectado", "Deseja alterar a taxa de aprendizagem?")
+                if user_response == "yes":
+                    new_learning_rate = float(simpledialog.askstring("Nova Taxa de Aprendizagem", "Digite a nova taxa de aprendizagem:"))
+                    mlp.learning_rate = new_learning_rate
+                else:
+                    self.training_output.insert(tk.END, "\nTreinamento encerrado devido a platô.\n")
+                    self.show_confusion_matrix(mlp, X_test, y_test)
+                    return
+
+            # Atualizar erro anterior
+            previous_error = mse
+
+        self.training_output.insert(tk.END, "\nTreinamento finalizado. Limite de épocas atingido.\n")
+        self.show_confusion_matrix(mlp, X_test, y_test)
+
+    def show_confusion_matrix(self, mlp, X_test, y_test):
         # Avaliação no conjunto de teste
         test_output = mlp.forward(X_test)
         test_loss = np.mean(np.square(y_test - test_output))
         self.training_output.insert(tk.END, f'Erro no conjunto de teste: {test_loss:.4f}\n')
 
-        # Matriz de Confusão
+       # Matriz de Confusão
         predicted_classes = np.argmax(test_output, axis=1)
         true_classes = np.argmax(y_test, axis=1)
         
