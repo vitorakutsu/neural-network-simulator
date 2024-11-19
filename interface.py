@@ -213,7 +213,8 @@ class Interface:
 
         # Lista para armazenar os erros
         errors = []
-        previous_error = None  # Para detecção de platô
+        errorsAux = []
+        cont = 1
 
         for epoch in range(max_epochs):
             # Forward e backward pass
@@ -223,6 +224,7 @@ class Interface:
             # Calcular erro
             mse = np.mean((y_train - output) ** 2)
             errors.append(mse)
+            errorsAux.append(mse)
 
             # Adicionar à tabela de resultados
             self.results_table.insert("", "end", values=(epoch + 1, round(mse, 4)))
@@ -238,19 +240,22 @@ class Interface:
                 return
 
             # Detecção de platô
-            if previous_error and abs(previous_error - mse) < 1e-6:
-                self.training_output.insert(tk.END, "\nPlatô detectado. Deseja alterar a taxa de aprendizagem? (sim/não)\n")
-                user_response = messagebox.askquestion("Platô detectado", "Deseja alterar a taxa de aprendizagem?")
-                if user_response == "yes":
-                    new_learning_rate = float(simpledialog.askstring("Nova Taxa de Aprendizagem", "Digite a nova taxa de aprendizagem:"))
-                    mlp.learning_rate = new_learning_rate
+            if cont == 10:
+                isPlato = self.analyse_errors_plato(errorsAux)
+                if isPlato: 
+                    user_response = messagebox.askquestion("Platô detectado", "Deseja alterar a taxa de aprendizagem?")
+                    if user_response == "yes":
+                        new_learning_rate = float(simpledialog.askstring("Nova Taxa de Aprendizagem", "Digite a nova taxa de aprendizagem:"))
+                        mlp.learning_rate = new_learning_rate
+                    else:
+                        self.training_output.insert(tk.END, "\nTreinamento encerrado devido a platô.\n")
+                        self.show_confusion_matrix(mlp, X_test, y_test)
+                        return
                 else:
-                    self.training_output.insert(tk.END, "\nTreinamento encerrado devido a platô.\n")
-                    self.show_confusion_matrix(mlp, X_test, y_test)
-                    return
-
-            # Atualizar erro anterior
-            previous_error = mse
+                    cont = 1
+                    errorsAux = []
+            else:
+                cont += 1
 
         self.training_output.insert(tk.END, "\nTreinamento finalizado. Limite de épocas atingido.\n")
         self.show_confusion_matrix(mlp, X_test, y_test)
@@ -303,7 +308,8 @@ class Interface:
 
         # Lista para armazenar os erros
         errors = []
-        previous_error = None  # Para detecção de platô
+        errorsAux = []
+        cont = 1
 
         for epoch in range(max_epochs):
             # Forward e backward pass
@@ -313,6 +319,7 @@ class Interface:
             # Calcular erro
             mse = np.mean((y_train - output) ** 2)
             errors.append(mse)
+            errorsAux.append(mse)
 
             # Adicionar à tabela de resultados
             self.results_table.insert("", "end", values=(epoch + 1, round(mse, 4)))
@@ -328,19 +335,23 @@ class Interface:
                 return
 
             # Detecção de platô
-            if previous_error and abs(previous_error - mse) < 1e-6:
-                self.training_output.insert(tk.END, "\nPlatô detectado. Deseja alterar a taxa de aprendizagem? (sim/não)\n")
-                user_response = messagebox.askquestion("Platô detectado", "Deseja alterar a taxa de aprendizagem?")
-                if user_response == "yes":
-                    new_learning_rate = float(simpledialog.askstring("Nova Taxa de Aprendizagem", "Digite a nova taxa de aprendizagem:"))
-                    mlp.learning_rate = new_learning_rate
+            if cont == 10:
+                isPlato = self.analyse_errors_plato(errorsAux)
+                if isPlato: 
+                    user_response = messagebox.askquestion("Platô detectado", "Deseja alterar a taxa de aprendizagem?")
+                    if user_response == "yes":
+                        new_learning_rate = float(simpledialog.askstring("Nova Taxa de Aprendizagem", "Digite a nova taxa de aprendizagem:"))
+                        mlp.learning_rate = new_learning_rate
+                    else:
+                        self.training_output.insert(tk.END, "\nTreinamento encerrado devido a platô.\n")
+                        self.show_confusion_matrix(mlp, X_test, y_test)
+                        return
                 else:
-                    self.training_output.insert(tk.END, "\nTreinamento encerrado devido a platô.\n")
-                    self.show_confusion_matrix(mlp, X_test, y_test)
-                    return
-
-            # Atualizar erro anterior
-            previous_error = mse
+                    cont = 1
+                    errorsAux = []
+            else:
+                cont += 1
+            
 
         self.training_output.insert(tk.END, "\nTreinamento finalizado. Limite de épocas atingido.\n")
         self.show_confusion_matrix(mlp, X_test, y_test)
@@ -366,3 +377,11 @@ class Interface:
         ax_confusion.set_ylabel("Classe Verdadeira")
         ax_confusion.set_title("Matriz de Confusão")
         fig_confusion.show()
+
+    def analyse_errors_plato(self, errors):
+        errorN1 = "{:.2f}".format(errors[0])
+        cont = 1
+        for error in errors:
+            if "{:.2f}".format(error) == errorN1:
+                cont += 1
+        return cont - 1 == errors.__len__()
