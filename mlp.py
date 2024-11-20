@@ -17,8 +17,7 @@ class MLP:
             return fx * (1 - fx) if derivative else fx
         elif self.activation == 'tanh':
             if derivative:
-                tanh_x = np.tanh(x)
-                return 1 - tanh_x ** 2
+                return 1 - np.tanh(x) ** 2
             return np.tanh(x)
 
     def forward(self, X):
